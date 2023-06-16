@@ -1,0 +1,6 @@
+[submodule "nex_protocols_common_py"]
+	path = nex_protocols_common_py
+	url = https://github.com/EpicUsername12/nex_protocols_common_py.git
+[submodule "grpc_py"]
+	path = grpc_py
+	url = https://github.com/PretendoNetwork/grpc_py.git
