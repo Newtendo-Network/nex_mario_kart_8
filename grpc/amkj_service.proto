@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package amkj;
+
+option go_package = "./;grpc_amkj";
+
+import "google/protobuf/timestamp.proto";
+
+service AmkjService {
+    rpc GetServerStatus(GetServerStatusRequest) returns (GetServerStatusResponse) {}
+
+    rpc StartMaintenance(StartMaintenanceRequest) returns (StartMaintenanceResponse) {}
+    rpc EndMaintenance(EndMaintenanceRequest) returns (EndMaintenanceResponse) {}
+
+    rpc ToggleWhitelist(ToggleWhitelistRequest) returns (ToggleWhitelistResponse) {}
+    rpc GetWhitelist(GetWhitelistRequest) returns (GetWhitelistResponse) {}
+    rpc AddWhitelistUser(AddWhitelistUserRequest) returns (AddWhitelistUserResponse) {}
+    rpc DelWhitelistUser(DelWhitelistUserRequest) returns (DelWhitelistUserResponse) {}
+
+    rpc GetAllUsers(GetAllUsersRequest) returns (GetAllUsersResponse) {}
+    rpc KickUser(KickUserRequest) returns (KickUserResponse) {}
+    rpc KickAllUsers(KickAllUsersRequest) returns (KickAllUsersResponse) {}
+}
+
+// ========================================================
+
+message GetServerStatusRequest {}
+message GetServerStatusResponse {
+    bool is_online = 1;
+    bool is_maintenance = 2;
+    bool is_whitelist = 3;
+    int32 num_clients = 4;
+    google.protobuf.Timestamp start_maintenance_time = 5;
+    google.protobuf.Timestamp end_maintenance_time = 6;
+}
+
+// ========================================================
+
+message StartMaintenanceRequest {
+    google.protobuf.Timestamp projected_utc_end_maintenance_time = 1;
+}
+message StartMaintenanceResponse {}
+
+// ========================================================
+
+message EndMaintenanceRequest {}
+message EndMaintenanceResponse {}
+
+// ========================================================
+
+message ToggleWhitelistRequest {}
+message ToggleWhitelistResponse {
+    bool is_whitelist = 1;
+}
+
+// ========================================================
+
+message GetWhitelistRequest {}
+message GetWhitelistResponse {
+    repeated uint32 pids = 1;
+}
+
+// ========================================================
+
+message AddWhitelistUserRequest {
+    uint32 pid = 1;
+}
+message AddWhitelistUserResponse {}
+
+// ========================================================
+
+message DelWhitelistUserRequest {
+    uint32 pid = 1;
+}
+message DelWhitelistUserResponse {}
+
+// ========================================================
+
+message GetAllUsersRequest {}
+message GetAllUsersResponse {
+    repeated uint32 pids = 1;
+}
+
+// ========================================================
+
+message KickUserRequest {
+    uint32 pid = 1;
+}
+message KickUserResponse {
+    bool was_connected = 1;
+}
+
+// ========================================================
+
+message KickAllUsersRequest {}
+message KickAllUsersResponse {
+    int32 num_kicked = 1;
+}
+
+// ========================================================

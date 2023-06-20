@@ -56,6 +56,11 @@ class NEXConfig:
         self.account_grpc_port = 1003
         self.account_grpc_api_key = "abcdefghijklmnopqrstuvwxyz123456789"
 
+        # These gRPC credentials are for the server we're implementing
+        self.mario_kart_8_grpc_host = "localhost"
+        self.mario_kart_8_grpc_port = 50051
+        self.mario_kart_8_grpc_api_key = "abcdefghijklmnopqrstuvwxyz123456789"
+
         self.account_db_server = MongoCredentials(
             host="111.111.111.111",
             port=1003

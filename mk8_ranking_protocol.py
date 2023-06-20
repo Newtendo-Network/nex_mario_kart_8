@@ -2,7 +2,7 @@ from nintendo.nex import common
 from pymongo.collection import Collection
 from typing import Callable
 import pymongo
-import simple_search_object_utils
+import redis
 import struct
 import bson
 import datetime
@@ -94,14 +94,14 @@ class MK8RankingServer(CommonRankingServer):
     def __init__(self,
                  settings,
                  rankings_db: Collection,
-                 redis_uri: str,
+                 redis_instance: redis.client.Redis,
                  commondata_db: Collection,
                  common_data_handler: Callable[[Collection, int, bytes, int], bool],
                  rankings_category: dict[int, bool],
                  tournaments_db: Collection,
                  tournaments_scores_db: Collection):
 
-        super().__init__(settings, rankings_db, redis_uri, commondata_db, common_data_handler, rankings_category)
+        super().__init__(settings, rankings_db, redis_instance, commondata_db, common_data_handler, rankings_category)
 
         self.tournaments_db = tournaments_db
         self.tournaments_scores_db = tournaments_scores_db

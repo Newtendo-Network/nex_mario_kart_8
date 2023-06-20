@@ -1,10 +1,12 @@
 # ============= Importing necessary libraries =============
 
-from nintendo.nex import rmc, kerberos
+from nintendo.nex import rmc, kerberos, common
 import logging
 import asyncio
+import time
 import aioconsole
 import requests
+import contextlib
 
 from nex_protocols_common_py.authentication_protocol import AuthenticationUser, CommonAuthenticationServer
 from nex_protocols_common_py.secure_connection_protocol import CommonSecureConnectionServer
@@ -16,33 +18,42 @@ from mk8_ranking_protocol import MK8RankingServer, mk8_common_data_handler
 from mk8_datastore_protocol import MK8DataStoreServer
 
 import grpc
-
+from amkj_service import AmkjService, amkj_service_pb2_grpc
 from grpc_py.account import account_service_pb2_grpc
 from grpc_py.account.get_nex_password_rpc_pb2 import GetNEXPasswordRequest
-
 from grpc_py.friends import friends_service_pb2_grpc
 from grpc_py.friends.get_user_friend_pids_rpc_pb2 import GetUserFriendPIDsRequest
+
+import redis
 
 import boto3
 from botocore.client import Config
 
-from server_config import NEX_CONFIG, NEX_SETTINGS
+try:
+    from server_config import NEX_CONFIG, NEX_SETTINGS
+except ModuleNotFoundError as e:
+    print('Rename "server_config.example.py" to "server_config.py" and modify the configuration options to fit with your env.')
+    exit(-1)
 
 
 logging.basicConfig(level=logging.INFO)
 
 # ============= Connecting to the database =============
 
-AccountDatabase = NEX_CONFIG.account_db_server.connect()[NEX_CONFIG.account_database]
 GameDatabase = NEX_CONFIG.game_db_server.connect()[NEX_CONFIG.game_database]
 
 # ============= Main server program =============
+
+amkj_service = AmkjService(GameDatabase["status"])
 
 friends_grpc_client = grpc.insecure_channel('%s:%d' % (NEX_CONFIG.friends_grpc_host, NEX_CONFIG.friends_grpc_port))
 friends_service = friends_service_pb2_grpc.FriendsStub(friends_grpc_client)
 
 account_grpc_client = grpc.insecure_channel('%s:%d' % (NEX_CONFIG.account_grpc_host, NEX_CONFIG.account_grpc_port))
 account_service = account_service_pb2_grpc.AccountStub(account_grpc_client)
+
+redis_client = redis.from_url(NEX_CONFIG.redis_uri)
+redis_client.ping()
 
 s3_client = boto3.client(
     's3',
@@ -58,6 +69,48 @@ def mk8_get_friend_pids(pid: int) -> list[int]:
     response = friends_service.GetUserFriendPIDs(GetUserFriendPIDsRequest(pid=pid), metadata=[("x-api-key", NEX_CONFIG.friends_grpc_api_key)])
     pids = [pids for pids in response.pids]
     return pids
+
+
+def mk8_get_nex_password(pid: int) -> str:
+    response = account_service.GetNEXPassword(GetNEXPasswordRequest(pid=pid), metadata=[("x-api-key", NEX_CONFIG.account_grpc_api_key)])
+    return response.password
+
+
+def mk8_auth_callback(auth_user: AuthenticationUser) -> common.Result:
+    if amkj_service.is_maintenance:
+        return common.Result.error("Authentication::UnderMaintenance")
+    if amkj_service.is_whitelist and (auth_user.pid not in amkj_service.whitelist):
+        return common.Result.error("RendezVous::PermissionDenied")
+    return common.Result.success()
+
+# ============= Custom RMC serving function =============
+
+
+class ExtendedRMCClient(rmc.RMCClient):
+    def __init__(self, settings, client):
+        amkj_service.add_player_connected()
+        return super().__init__(settings, client)
+
+    async def cleanup(self):
+        if not self.closed:
+            amkj_service.del_player_connected()
+        await super().cleanup()
+
+
+@contextlib.asynccontextmanager
+async def serve_rmc_custom(settings, servers, host="", port=0, vport=1, context=None, key=None):
+    async def handle(client):
+        host, port = client.remote_address()
+        rmc.logger.debug("New RMC connection: %s:%i", host, port)
+
+        client = ExtendedRMCClient(settings, client)
+        async with client:
+            await client.start(servers)
+
+    rmc.logger.info("Starting RMC server at %s:%i:%i", host, port, vport)
+    async with rmc.prudp.serve(handle, settings, host, port, vport, 10, context, key):
+        yield
+    rmc.logger.info("RMC server is closed")
 
 
 async def main():
@@ -80,7 +133,8 @@ async def main():
                                                       secure_port=NEX_CONFIG.nex_secure_port,
                                                       build_string="Pretendo MK8 server",
                                                       special_users=[SecureServerUser, GuestUser],
-                                                      nexaccounts_db=AccountDatabase[NEX_CONFIG.nex_account_collection])
+                                                      get_nex_password_func=mk8_get_nex_password,
+                                                      auth_callback=mk8_auth_callback)
 
     # ============= Initializing Secure Protocol =============
 
@@ -94,7 +148,7 @@ async def main():
 
     RankingServer = MK8RankingServer(sett,
                                      rankings_db=GameDatabase[NEX_CONFIG.rankings_score_collection],
-                                     redis_uri=NEX_CONFIG.redis_uri,
+                                     redis_instance=redis_client,
                                      commondata_db=GameDatabase[NEX_CONFIG.ranking_common_data_collection],
                                      common_data_handler=mk8_common_data_handler,
                                      rankings_category={},
@@ -176,8 +230,41 @@ async def main():
 
     server_key = kerberos.KeyDerivationOld(65000, 1024).derive_key(NEX_CONFIG.nex_secure_user_password.encode("ascii"), pid=2)
     async with rmc.serve(sett, auth_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_auth_port):
-        async with rmc.serve(sett, secure_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_secure_port, key=server_key):
+        async with serve_rmc_custom(sett, secure_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_secure_port, key=server_key):
+            server = grpc.aio.server()
+            amkj_service_pb2_grpc.add_AmkjServiceServicer_to_server(amkj_service, server)
+
+            listen_addr = "%s:%d" % (NEX_CONFIG.mario_kart_8_grpc_host, NEX_CONFIG.mario_kart_8_grpc_port)
+            server.add_insecure_port(listen_addr)
+            logging.info("Starting gRPC amkj server on %s", listen_addr)
+
+            await server.start()
             await aioconsole.ainput("Press enter to exit...\n")
 
 
-asyncio.run(main())
+async def sync_amkj_status_to_database(task: asyncio.Task):
+    last_time = time.time()
+    while True:
+        if task.done():
+            break
+
+        if time.time() - last_time > 5:
+            amkj_service.sync_status_to_database()
+            last_time = time.time()
+
+        await asyncio.sleep(0.1)
+
+    print("Exiting AMKJ service, emptying player list/count ...")
+    amkj_service.num_clients = 0
+    amkj_service.sync_status_to_database()
+
+
+async def init():
+    main_task = asyncio.create_task(main())
+    sync_task = asyncio.create_task(sync_amkj_status_to_database(main_task))
+
+    await main_task
+    await sync_task
+
+if __name__ == "__main__":
+    asyncio.run(init())

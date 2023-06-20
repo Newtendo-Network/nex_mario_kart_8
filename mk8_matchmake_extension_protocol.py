@@ -144,7 +144,7 @@ class MK8MatchmakeExtensionServer(CommonMatchmakeExtensionServer):
         obj.id = simple_search_object_utils.get_next_tournament_id(self.sequence_db)
         obj.owner = client.pid()
 
-        if len(obj.community_code) > 12:
+        if len(obj.community_code) != 12 or obj.community_id == 0:
             raise common.RMCError("Core::InvalidArgument")
 
         for s in obj.community_code:
@@ -158,6 +158,7 @@ class MK8MatchmakeExtensionServer(CommonMatchmakeExtensionServer):
         doc = simple_search_object_utils.simple_search_object_to_document(obj)
         doc.update({
             "total_participants": 0,
+            "season_id": 1
         })
         self.tournaments_db.insert_one(doc)
 
