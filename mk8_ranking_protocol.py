@@ -180,10 +180,10 @@ class MK8RankingServer(CommonRankingServer):
 
             team_scores = [0, 0, 0, 0]
             if tournament["attributes"][4] == 2:
-                team_scores[0] = self.get_redis_key_or_value("tournaments:scores:%d_%d_team0" % (param.id, season_id))
-                team_scores[1] = self.get_redis_key_or_value("tournaments:scores:%d_%d_team1" % (param.id, season_id))
                 team_scores[2] = self.get_redis_key_or_value("tournaments:participation:%d_%d_team0" % (param.id, season_id))
                 team_scores[3] = self.get_redis_key_or_value("tournaments:participation:%d_%d_team1" % (param.id, season_id))
+                team_scores[0] = self.get_redis_key_or_value("tournaments:scores:%d_%d_team0" % (param.id, season_id)) - team_scores[2]
+                team_scores[1] = self.get_redis_key_or_value("tournaments:scores:%d_%d_team1" % (param.id, season_id)) - team_scores[3]
 
             for i in range(len(scores)):
                 score = scores[i]
@@ -274,10 +274,10 @@ class MK8RankingServer(CommonRankingServer):
 
             # If it's a team tournament
             if tournament["attributes"][4] == 2:
-                info.team_scores[0] = self.get_redis_key_or_value("tournaments:participation:%d_team0" % (tournament["id"]))
-                info.team_scores[1] = self.get_redis_key_or_value("tournaments:participation:%d_team1" % (tournament["id"]))
-                info.team_scores[2] = self.get_redis_key_or_value("tournaments:scores:%d_team0" % (tournament["id"]))
-                info.team_scores[3] = self.get_redis_key_or_value("tournaments:scores:%d_team1" % (tournament["id"]))
+                info.team_scores[2] = self.get_redis_key_or_value("tournaments:participation:%d_team0" % (tournament["id"]))
+                info.team_scores[3] = self.get_redis_key_or_value("tournaments:participation:%d_team1" % (tournament["id"]))
+                info.team_scores[0] = self.get_redis_key_or_value("tournaments:scores:%d_team0" % (tournament["id"])) - info.team_scores[2]
+                info.team_scores[1] = self.get_redis_key_or_value("tournaments:scores:%d_team1" % (tournament["id"])) - info.team_scores[3]
 
             res.append(info)
 
