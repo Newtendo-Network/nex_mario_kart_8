@@ -44,7 +44,10 @@ GameDatabase = NEX_CONFIG.game_db_server.connect()[NEX_CONFIG.game_database]
 
 # ============= Main server program =============
 
-amkj_service = AmkjService(GameDatabase["status"])
+amkj_service = AmkjService(NEX_CONFIG.mario_kart_8_grpc_api_key,
+                           GameDatabase["status"],
+                           GameDatabase[NEX_CONFIG.gatherings_collection],
+                           GameDatabase[NEX_CONFIG.tournaments_collection])
 
 friends_grpc_client = grpc.insecure_channel('%s:%d' % (NEX_CONFIG.friends_grpc_host, NEX_CONFIG.friends_grpc_port))
 friends_service = friends_service_pb2_grpc.FriendsStub(friends_grpc_client)
@@ -231,7 +234,7 @@ async def main():
     server_key = kerberos.KeyDerivationOld(65000, 1024).derive_key(NEX_CONFIG.nex_secure_user_password.encode("ascii"), pid=2)
     async with rmc.serve(sett, auth_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_auth_port):
         async with serve_rmc_custom(sett, secure_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_secure_port, key=server_key):
-            server = grpc.aio.server()
+            server = grpc.aio.server(options=(("grpc.primary_user_agent", "Pretendo_MK8_GRPC"),))
             amkj_service_pb2_grpc.add_AmkjServiceServicer_to_server(amkj_service, server)
 
             listen_addr = "%s:%d" % (NEX_CONFIG.mario_kart_8_grpc_host, NEX_CONFIG.mario_kart_8_grpc_port)

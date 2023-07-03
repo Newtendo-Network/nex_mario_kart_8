@@ -144,9 +144,10 @@ def verify_simple_search_object_type(obj: matchmaking_mk8d.SimpleSearchObject):
 
 
 class ChunkData:
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, max_id: int = 12):
         self.buffer = data
         self.data: dict[int, bytes] = {}
+        self.max_id = max_id
 
     def parse(self):
         stream = streams.StreamIn(self.buffer, ">")
@@ -157,6 +158,10 @@ class ChunkData:
 
         id = stream.u8()
         while id != 255:
+
+            if id > self.max_id:
+                raise ValueError("Invalid ID")
+
             size = stream.u16()
             data = stream.read(size)
             self.data[id] = data

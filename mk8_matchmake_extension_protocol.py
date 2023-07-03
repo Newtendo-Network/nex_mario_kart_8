@@ -155,10 +155,24 @@ class MK8MatchmakeExtensionServer(CommonMatchmakeExtensionServer):
         if tournament:
             raise common.RMCError("Core::InvalidArgument")
 
+        metadata = simple_search_object_utils.TournamentMetadata(obj.metadata)
+        metadata.parse()
+
         doc = simple_search_object_utils.simple_search_object_to_document(obj)
         doc.update({
             "total_participants": 0,
-            "season_id": 1
+            "season_id": 1,
+            "parsed_metadata": {
+                "name": metadata.name,
+                "description": metadata.description,
+                "red_team": metadata.red_team,
+                "blue_team": metadata.blue_team,
+                "repeat_type": metadata.repeat_type,
+                "gameset_num": metadata.gameset_num,
+                "icon_type": metadata.icon_type,
+                "battle_time": metadata.battle_time,
+                "update_date": metadata.update_date,
+            }
         })
         self.tournaments_db.insert_one(doc)
 
