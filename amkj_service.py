@@ -28,6 +28,8 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
         self.end_maintenance_time = datetime.utcnow()
         self.whitelist = []
 
+        self.rmc_clients: dict[int, rmc.RMCClient] = {}
+
         self.sync_status_from_database()
         self.sync_status_to_database()
 
@@ -55,11 +57,14 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             self.end_maintenance_time = status["end_maintenance_time"]
             self.whitelist = status["whitelist"]
 
-    def add_player_connected(self):
+    def add_player_connected(self, client: rmc.RMCClient):
         self.num_clients += 1
+        self.rmc_clients[client.pid()] = client
 
-    def del_player_connected(self):
+    def del_player_connected(self, client: rmc.RMCClient):
         self.num_clients -= 1
+        if client.pid() in self.rmc_clients:
+            del self.rmc_clients[client.pid()]
 
     async def check_auth(self, context: grpc.aio.ServicerContext):
         metadata = dict(context.invocation_metadata())
@@ -121,3 +126,37 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
                 ))
 
         return amkj_service_pb2.GetAllGatheringsResponse(gatherings=gatherings)
+
+    async def GetAllTournaments(self,
+                                request: amkj_service_pb2.GetAllTournamentsRequest,
+                                context: grpc.aio.ServicerContext) -> amkj_service_pb2.GetAllTournamentsResponse:
+
+        await self.check_auth(context)
+
+        cursor = self.tournaments_db.find({}).skip(request.offset)
+        if request.limit > 0:
+            cursor = cursor.limit(request.limit)
+
+        tournaments = []
+        for tournament in cursor:
+            tournaments.append(
+                amkj_service_pb2.Tournament(
+                    id=tournament["id"],
+                    owner=tournament["owner"],
+                    attributes=tournament["attributes"],
+                    community_code=tournament["community_code"],
+                    app_data=tournament["metadata"],
+                    total_participants=tournament["total_participants"],
+                    season_id=tournament["season_id"],
+                    name=tournament["parsed_metadata"]["name"],
+                    description=tournament["parsed_metadata"]["description"],
+                    red_team=tournament["parsed_metadata"]["red_team"],
+                    blue_team=tournament["parsed_metadata"]["blue_team"],
+                    repeat_type=tournament["parsed_metadata"]["repeat_type"],
+                    gameset_num=tournament["parsed_metadata"]["gameset_num"],
+                    icon_type=tournament["parsed_metadata"]["icon_type"],
+                    battle_time=tournament["parsed_metadata"]["battle_time"],
+                    update_date=tournament["parsed_metadata"]["update_date"],
+                ))
+
+        return amkj_service_pb2.GetAllTournamentsResponse(tournaments=tournaments)

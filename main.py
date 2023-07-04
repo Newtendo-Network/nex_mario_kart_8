@@ -91,12 +91,12 @@ def mk8_auth_callback(auth_user: AuthenticationUser) -> common.Result:
 
 class ExtendedRMCClient(rmc.RMCClient):
     def __init__(self, settings, client):
-        amkj_service.add_player_connected()
-        return super().__init__(settings, client)
+        super().__init__(settings, client)
+        amkj_service.add_player_connected(self)
 
     async def cleanup(self):
         if not self.closed:
-            amkj_service.del_player_connected()
+            amkj_service.del_player_connected(self)
         await super().cleanup()
 
 

@@ -189,11 +189,25 @@ class MK8MatchmakeExtensionServer(CommonMatchmakeExtensionServer):
         if tournament["owner"] != client.pid():
             raise common.RMCError("Core::AccessDenied")
 
+        metadata = simple_search_object_utils.TournamentMetadata(obj.metadata)
+        metadata.parse()
+
         self.tournaments_db.update_one({"id": id}, {
             "$set": {
                 "attributes": obj.attributes,
                 "metadata": obj.metadata,
-                "datetime": simple_search_object_utils.simple_search_date_time_attribute_to_document(obj.datetime)
+                "datetime": simple_search_object_utils.simple_search_date_time_attribute_to_document(obj.datetime),
+                "parsed_metadata": {
+                    "name": metadata.name,
+                    "description": metadata.description,
+                    "red_team": metadata.red_team,
+                    "blue_team": metadata.blue_team,
+                    "repeat_type": metadata.repeat_type,
+                    "gameset_num": metadata.gameset_num,
+                    "icon_type": metadata.icon_type,
+                    "battle_time": metadata.battle_time,
+                    "update_date": metadata.update_date,
+                }
             }
         })
 
