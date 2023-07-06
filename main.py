@@ -7,6 +7,7 @@ import time
 import aioconsole
 import requests
 import contextlib
+import datetime
 
 from nex_protocols_common_py.authentication_protocol import AuthenticationUser, CommonAuthenticationServer
 from nex_protocols_common_py.secure_connection_protocol import CommonSecureConnectionServer
@@ -47,7 +48,8 @@ GameDatabase = NEX_CONFIG.game_db_server.connect()[NEX_CONFIG.game_database]
 amkj_service = AmkjService(NEX_CONFIG.mario_kart_8_grpc_api_key,
                            GameDatabase["status"],
                            GameDatabase[NEX_CONFIG.gatherings_collection],
-                           GameDatabase[NEX_CONFIG.tournaments_collection])
+                           GameDatabase[NEX_CONFIG.tournaments_collection],
+                           GameDatabase[NEX_CONFIG.ranking_common_data_collection])
 
 friends_grpc_client = grpc.insecure_channel('%s:%d' % (NEX_CONFIG.friends_grpc_host, NEX_CONFIG.friends_grpc_port))
 friends_service = friends_service_pb2_grpc.FriendsStub(friends_grpc_client)
@@ -92,11 +94,11 @@ def mk8_auth_callback(auth_user: AuthenticationUser) -> common.Result:
 class ExtendedRMCClient(rmc.RMCClient):
     def __init__(self, settings, client):
         super().__init__(settings, client)
-        amkj_service.add_player_connected(self)
+        asyncio.ensure_future(amkj_service.add_player_connected(self))
 
     async def cleanup(self):
         if not self.closed:
-            amkj_service.del_player_connected(self)
+            await amkj_service.del_player_connected(self)
         await super().cleanup()
 
 
@@ -254,6 +256,12 @@ async def sync_amkj_status_to_database(task: asyncio.Task):
         if time.time() - last_time > 5:
             amkj_service.sync_status_to_database()
             last_time = time.time()
+
+            if amkj_service.is_maintenance == False and amkj_service.should_switch_to_maintenance == True:
+                if datetime.datetime.utcnow() > amkj_service.start_maintenance_time:
+                    amkj_service.is_maintenance = True
+                    amkj_service.should_switch_to_maintenance = False
+                    await amkj_service.kick_all()
 
         await asyncio.sleep(0.1)
 

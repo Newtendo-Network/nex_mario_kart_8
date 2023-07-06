@@ -7,31 +7,54 @@ import grpc
 import amkj_service_pb2
 import amkj_service_pb2_grpc
 
-from datetime import datetime
+import asyncio
+
+from datetime import datetime, timezone
 from google.protobuf.timestamp_pb2 import Timestamp
 
 
 class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
-    def __init__(self, api_key: str, status_db: Collection, gatherings_db: Collection, tournaments_db: Collection):
+    def __init__(self, api_key: str, status_db: Collection, gatherings_db: Collection, tournaments_db: Collection, commondata_db: Collection):
         self.rmc_secure_server = None
         self.api_key = api_key
         self.status_db = status_db
         self.gatherings_db = gatherings_db
         self.tournaments_db = tournaments_db
+        self.commondata_db = commondata_db
 
         self.is_online = False
         self.is_maintenance = False
         self.is_whitelist = False
         self.num_clients = 0
+
+        self.should_switch_to_maintenance = False
         self.start_maintenance_time = datetime.utcnow()
         self.end_maintenance_time = datetime.utcnow()
+
         self.whitelist = []
 
         self.rmc_clients: dict[int, rmc.RMCClient] = {}
+        self.rmc_clients_lock = asyncio.Lock()
 
         self.sync_status_from_database()
         self.sync_status_to_database()
+
+    @staticmethod
+    def grpc_timestamp_to_local(timestamp: Timestamp) -> datetime:
+        seconds = timestamp.seconds
+        nanoseconds = timestamp.nanos
+
+        # Convert nanoseconds to microseconds
+        microseconds = nanoseconds // 1000
+
+        # Create datetime object from timestamp
+        utc_datetime = datetime.utcfromtimestamp(seconds).replace(microsecond=microseconds)
+
+        # Convert UTC datetime to local datetime
+        local_datetime = utc_datetime.astimezone()
+
+        return local_datetime
 
     def sync_status_to_database(self):
         self.status_db.find_one_and_update({}, {
@@ -57,14 +80,16 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             self.end_maintenance_time = status["end_maintenance_time"]
             self.whitelist = status["whitelist"]
 
-    def add_player_connected(self, client: rmc.RMCClient):
-        self.num_clients += 1
-        self.rmc_clients[client.pid()] = client
+    async def add_player_connected(self, client: rmc.RMCClient):
+        async with self.rmc_clients_lock:
+            self.num_clients += 1
+            self.rmc_clients[client.pid()] = client
 
-    def del_player_connected(self, client: rmc.RMCClient):
-        self.num_clients -= 1
-        if client.pid() in self.rmc_clients:
-            del self.rmc_clients[client.pid()]
+    async def del_player_connected(self, client: rmc.RMCClient):
+        async with self.rmc_clients_lock:
+            self.num_clients -= 1
+            if client.pid() in self.rmc_clients:
+                del self.rmc_clients[client.pid()]
 
     async def check_auth(self, context: grpc.aio.ServicerContext):
         metadata = dict(context.invocation_metadata())
@@ -74,6 +99,23 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
         if api_key != self.api_key:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "Bad API key")
+
+    async def kick_all(self) -> int:
+        pids = list(self.rmc_clients.keys())
+        for pid in pids:
+            cl = self.rmc_clients.pop(pid)
+            await cl.disconnect()
+        return len(pids)
+
+    async def kick_by_pid(self, pid) -> bool:
+        if pid in self.rmc_clients:
+            cl = self.rmc_clients.pop(pid)
+            await cl.disconnect()
+            self.rmc_clients_lock.release()
+            return True
+
+        self.rmc_clients_lock.release()
+        return False
 
     async def GetServerStatus(self,
                               request: amkj_service_pb2.GetServerStatusRequest,
@@ -95,6 +137,104 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             start_maintenance_time=start_maintenance,
             end_maintenance_time=end_maintenance,
         )
+
+    async def StartMaintenance(self,
+                               request: amkj_service_pb2.StartMaintenanceRequest,
+                               context: grpc.aio.ServicerContext) -> amkj_service_pb2.StartMaintenanceResponse:
+
+        await self.check_auth(context)
+
+        start_time: Timestamp = request.utc_start_maintenance_time
+        end_time: Timestamp = request.utc_end_maintenance_time
+
+        self.should_switch_to_maintenance = True
+        self.start_maintenance_time = start_time.ToDatetime()
+        self.end_maintenance_time = end_time.ToDatetime()
+
+        return amkj_service_pb2.StartMaintenanceResponse()
+
+    async def EndMaintenance(self,
+                             request: amkj_service_pb2.EndMaintenanceRequest,
+                             context: grpc.aio.ServicerContext) -> amkj_service_pb2.EndMaintenanceResponse:
+
+        await self.check_auth(context)
+
+        self.start_maintenance_time = datetime(1970, 1, 1, 0, 0, 0, 0)
+        self.is_maintenance = False
+
+        return amkj_service_pb2.EndMaintenanceResponse()
+
+    async def ToggleWhitelist(self,
+                              request: amkj_service_pb2.ToggleWhitelistRequest,
+                              context: grpc.aio.ServicerContext) -> amkj_service_pb2.ToggleWhitelistResponse:
+
+        await self.check_auth(context)
+
+        self.is_whitelist = not self.is_whitelist
+
+        return amkj_service_pb2.ToggleWhitelistResponse(is_whitelist=self.is_whitelist)
+
+    async def GetWhitelist(self,
+                           request: amkj_service_pb2.GetWhitelistRequest,
+                           context: grpc.aio.ServicerContext) -> amkj_service_pb2.GetWhitelistRequest:
+
+        await self.check_auth(context)
+
+        return amkj_service_pb2.GetWhitelistRequest(pids=self.whitelist)
+
+    async def AddWhitelistUser(self,
+                               request: amkj_service_pb2.AddWhitelistUserRequest,
+                               context: grpc.aio.ServicerContext) -> amkj_service_pb2.AddWhitelistUserResponse:
+
+        await self.check_auth(context)
+
+        if request.pid not in self.whitelist:
+            self.whitelist.append(request.pid)
+
+        return amkj_service_pb2.AddWhitelistUserResponse()
+
+    async def DelWhitelistUser(self,
+                               request: amkj_service_pb2.DelWhitelistUserRequest,
+                               context: grpc.aio.ServicerContext) -> amkj_service_pb2.DelWhitelistUserResponse:
+
+        await self.check_auth(context)
+
+        if request.pid in self.whitelist:
+            self.whitelist.remove(request.pid)
+
+        return amkj_service_pb2.DelWhitelistUserResponse()
+
+    async def GetAllUsers(self,
+                          request: amkj_service_pb2.GetAllUsersRequest,
+                          context: grpc.aio.ServicerContext) -> amkj_service_pb2.GetAllUsersResponse:
+
+        await self.check_auth(context)
+
+        res = amkj_service_pb2.GetAllUsersResponse(pids=list(self.rmc_clients.keys()))
+
+        return res
+
+    async def KickUser(self,
+                       request: amkj_service_pb2.KickUserRequest,
+                       context: grpc.aio.ServicerContext) -> amkj_service_pb2.KickUserResponse:
+
+        await self.check_auth(context)
+
+        res = await self.kick_by_pid(request.pid)
+        if res:
+            return amkj_service_pb2.KickUserResponse(was_connected=True)
+
+        return amkj_service_pb2.KickUserResponse(was_connected=False)
+
+    async def KickAllUsers(self,
+                           request: amkj_service_pb2.KickAllUsersRequest,
+                           context: grpc.aio.ServicerContext) -> amkj_service_pb2.KickAllUsersResponse:
+
+        await self.check_auth(context)
+
+        res = await self.kick_all()
+
+        return amkj_service_pb2.KickAllUsersResponse(num_kicked=res)
 
     async def GetAllGatherings(self,
                                request: amkj_service_pb2.GetAllGatheringsRequest,
@@ -133,12 +273,19 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
         await self.check_auth(context)
 
-        cursor = self.tournaments_db.find({}).skip(request.offset)
+        # Search all public tournaments
+        cursor = self.tournaments_db.find({"attributes.0": 1}).skip(request.offset)
         if request.limit > 0:
             cursor = cursor.limit(request.limit)
 
         tournaments = []
         for tournament in cursor:
+            start_date_time = Timestamp()
+            start_date_time.FromDatetime(common.DateTime(tournament["datetime"]["start_datetime"]).standard_datetime())
+
+            end_date_time = Timestamp()
+            end_date_time.FromDatetime(common.DateTime(tournament["datetime"]["end_datetime"]).standard_datetime())
+
             tournaments.append(
                 amkj_service_pb2.Tournament(
                     id=tournament["id"],
@@ -157,6 +304,56 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
                     icon_type=tournament["parsed_metadata"]["icon_type"],
                     battle_time=tournament["parsed_metadata"]["battle_time"],
                     update_date=tournament["parsed_metadata"]["update_date"],
+                    start_day_time=tournament["datetime"]["start_daytime"],
+                    end_day_time=tournament["datetime"]["end_daytime"],
+                    start_time=tournament["datetime"]["start_time"],
+                    end_time=tournament["datetime"]["end_time"],
+                    start_date_time=start_date_time,
+                    end_date_time=end_date_time
                 ))
 
         return amkj_service_pb2.GetAllTournamentsResponse(tournaments=tournaments)
+
+    async def GetUnlocks(self,
+                         request: amkj_service_pb2.GetUnlocksRequest,
+                         context: grpc.aio.ServicerContext) -> amkj_service_pb2.GetUnlocksResponse:
+
+        await self.check_auth(context)
+
+        last_update = Timestamp()
+        last_update.FromDatetime(datetime.utcnow())
+
+        data = self.commondata_db.find_one({"pid": request.pid})
+        if data:
+            last_update.FromDatetime(data["last_update"])
+            res = amkj_service_pb2.GetUnlocksResponse(
+                has_data=True,
+                vr_rate=data["vr_rate"],
+                br_rate=data["br_rate"],
+                last_update=last_update,
+                gp_unlocks=data["gp_unlocks"],
+                engine_unlocks=data["engine_unlocks"],
+                driver_unlocks=data["driver_unlocks"],
+                body_unlocks=data["body_unlocks"],
+                tire_unlocks=data["tire_unlocks"],
+                wing_unlocks=data["wing_unlocks"],
+                stamp_unlocks=data["stamp_unlocks"],
+                dlc_unlocks=data["dlc_unlocks"]
+            )
+        else:
+            res = amkj_service_pb2.GetUnlocksResponse(
+                has_data=False,
+                vr_rate=0.0,
+                br_rate=0.0,
+                last_update=last_update,
+                gp_unlocks=[],
+                engine_unlocks=[],
+                driver_unlocks=[],
+                body_unlocks=[],
+                tire_unlocks=[],
+                wing_unlocks=[],
+                stamp_unlocks=[],
+                dlc_unlocks=[]
+            )
+
+        return res
