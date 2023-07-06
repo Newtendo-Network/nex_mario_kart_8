@@ -70,7 +70,7 @@ def mk8_common_data_handler(collection: Collection, pid: int, data: bytes, uniqu
         "data": bson.Binary(data),
         "size": len(data),
         "unique_id": unique_id,
-        "last_update": datetime.datetime.now(),
+        "last_update": datetime.datetime.utcnow(),
 
         "vr_rate": vr_rate,
         "br_rate": br_rate,
