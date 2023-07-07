@@ -26,7 +26,6 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
         self.is_online = False
         self.is_maintenance = False
         self.is_whitelist = False
-        self.num_clients = 0
 
         self.should_switch_to_maintenance = False
         self.start_maintenance_time = datetime.utcnow()
@@ -62,7 +61,6 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
                 "is_online": self.is_online,
                 "is_maintenance": self.is_maintenance,
                 "is_whitelist": self.is_whitelist,
-                "num_clients": self.num_clients,
                 "start_maintenance_time": self.start_maintenance_time,
                 "end_maintenance_time": self.end_maintenance_time,
                 "whitelist": self.whitelist,
@@ -75,19 +73,16 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             self.is_online = status["is_online"]
             self.is_maintenance = status["is_maintenance"]
             self.is_whitelist = status["is_whitelist"]
-            self.num_clients = status["num_clients"]
             self.start_maintenance_time = status["start_maintenance_time"]
             self.end_maintenance_time = status["end_maintenance_time"]
             self.whitelist = status["whitelist"]
 
     async def add_player_connected(self, client: rmc.RMCClient):
         async with self.rmc_clients_lock:
-            self.num_clients += 1
             self.rmc_clients[client.pid()] = client
 
     async def del_player_connected(self, client: rmc.RMCClient):
         async with self.rmc_clients_lock:
-            self.num_clients -= 1
             if client.pid() in self.rmc_clients:
                 del self.rmc_clients[client.pid()]
 
@@ -133,7 +128,7 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             is_online=self.is_online,
             is_maintenance=self.is_maintenance,
             is_whitelist=self.is_whitelist,
-            num_clients=self.num_clients,
+            num_clients=list(self.rmc_clients),
             start_maintenance_time=start_maintenance,
             end_maintenance_time=end_maintenance,
         )
