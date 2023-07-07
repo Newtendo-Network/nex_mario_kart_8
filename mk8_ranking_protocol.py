@@ -263,8 +263,8 @@ class MK8RankingServer(CommonRankingServer):
             raise common.RMCError("Core::InvalidArgument")
 
         res = []
-        query = {"total_participants": {"$gte": 2}}
-        tournaments = self.tournaments_db.find(query).sort("total_participants", pymongo.DESCENDING).skip(param.range.offset).limit(param.range.size)
+        query = {"attributes.0": 1}
+        tournaments = self.tournaments_db.find().sort("total_participants", pymongo.DESCENDING).skip(param.range.offset).limit(param.range.size)
 
         for tournament in tournaments:
             info = CompetitionRankingInfo()
