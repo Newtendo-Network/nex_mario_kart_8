@@ -128,7 +128,7 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             is_online=self.is_online,
             is_maintenance=self.is_maintenance,
             is_whitelist=self.is_whitelist,
-            num_clients=list(self.rmc_clients),
+            num_clients=len(list(self.rmc_clients)),
             start_maintenance_time=start_maintenance,
             end_maintenance_time=end_maintenance,
         )
