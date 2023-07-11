@@ -61,8 +61,7 @@ class MK8MatchmakeExtensionServer(CommonMatchmakeExtensionServer):
         if matchmaking_utils.gathering_type_to_name(filter) == "MatchmakeSession":
             res.update({"attribs.0": filter.attribs[0]})  # Tournament ID (0 for not a tournament)
             res.update({"attribs.4": {"$bitsAllSet": (filter.attribs[4] & 0b11)}})  # Filter DLC status (the 2 LSB of attribute[4])
-            if filter.game_mode != 0:  # If not Worldwide
-                res.update({"attribs.3": filter.attribs[3]})  # Filter region
+            res.update({"attribs.3": filter.attribs[3]})  # Filter region
         return res
 
     def verify_simple_search_param_type(self, obj: matchmaking_mk8d.SimpleSearchParam):
