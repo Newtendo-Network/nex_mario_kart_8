@@ -33,6 +33,15 @@ def mk8_common_data_handler(collection: Collection, pid: int, data: bytes, uniqu
 
     # Literally a copy of how the game does it, but reverse
 
+    try:
+        mii_name = account_related_data[0x1a:0x2e]
+        mii_values = list(struct.unpack("<10H", mii_name)) + [0]
+        index_of_zero = mii_values.index(0)
+        mii_values = mii_values[:index_of_zero]
+        mii_name = ''.join(chr(value) for value in mii_values)
+    except:
+        mii_name = ""
+
     gp_unlocks = []
     for i in range(20):
         gp_unlocks.append(int(bits[(0 * 8) + i]))
@@ -72,6 +81,7 @@ def mk8_common_data_handler(collection: Collection, pid: int, data: bytes, uniqu
         "unique_id": unique_id,
         "last_update": datetime.datetime.utcnow(),
 
+        "mii_name": mii_name,
         "vr_rate": vr_rate,
         "br_rate": br_rate,
         "gp_unlocks": gp_unlocks,
