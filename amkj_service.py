@@ -237,15 +237,48 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
         await self.check_auth(context)
 
-        cursor = self.gatherings_db.find({}).skip(request.offset)
-        if request.limit > 0:
-            cursor = cursor.limit(request.limit)
+        pipeline = [
+            {
+                '$lookup': {
+                    'from': self.commondata_db.name,
+                    'localField': 'players',
+                    'foreignField': 'pid',
+                    'as': 'players'
+                }
+            },
+            {
+                "$project": {
+                    "attribs": 1,
+                    "application_data": 1,
+                    "game_mode": 1,
+                    "id": 1,
+                    "host": 1,
+                    "owner": 1,
+                    "min_participants": 1,
+                    "max_participants": 1,
+                    "players.pid": 1,
+                    "players.mii_name": 1
+                }
+            },
+            {
+                '$skip': request.offset
+            },
+        ]
+
+        if request.limit >= 0:
+            pipeline.append({"$limit": request.limit})
+
+        cursor = self.gatherings_db.aggregate(pipeline)
 
         gatherings = []
         for gathering in cursor:
             attribs = gathering["attribs"] if "attribs" in gathering else []
             app_data = gathering["application_data"] if "application_data" in gathering else b""
             game_mode = gathering["game_mode"] if "game_mode" in gathering else 0
+
+            players = []
+            for player in gathering["players"]:
+                players.append(amkj_service_pb2.GatheringParticipant(pid=player["pid"], mii_name=player["mii_name"]))
 
             gatherings.append(
                 amkj_service_pb2.Gathering(
@@ -255,7 +288,7 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
                     attributes=attribs,
                     game_mode=game_mode,
                     app_data=app_data,
-                    players=gathering["players"],
+                    players=players,
                     min_participants=gathering["min_participants"],
                     max_participants=gathering["max_participants"]
                 ))
