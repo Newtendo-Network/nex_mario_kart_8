@@ -278,7 +278,8 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
             players = []
             for player in gathering["players"]:
-                players.append(amkj_service_pb2.GatheringParticipant(pid=player["pid"], mii_name=player["mii_name"]))
+                mii_name = player["mii_name"] if "mii_name" in player else "<Restart game>"
+                players.append(amkj_service_pb2.GatheringParticipant(pid=player["pid"], mii_name=mii_name))
 
             gatherings.append(
                 amkj_service_pb2.Gathering(
