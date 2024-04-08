@@ -1,5 +1,6 @@
 from nintendo.nex import common, rmc
 from nex_protocols_common_py.authentication_protocol import AuthenticationUser
+from nex_protocols_common_py.ranking_protocol import RankingManager
 
 from pymongo.collection import Collection
 
@@ -22,6 +23,7 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
         self.gatherings_db = gatherings_db
         self.tournaments_db = tournaments_db
         self.commondata_db = commondata_db
+        self.ranking_mgr: RankingManager = None
 
         self.is_online = False
         self.is_maintenance = False
@@ -38,6 +40,9 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
         self.sync_status_from_database()
         self.sync_status_to_database()
+
+    def bind_ranking_manager(self, ranking_mgr: RankingManager):
+        self.ranking_mgr = ranking_mgr
 
     @staticmethod
     def grpc_timestamp_to_local(timestamp: Timestamp) -> datetime:
@@ -386,3 +391,54 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             )
 
         return res
+
+    """
+    message TimeTrialRanking {
+        uint32 rank = 1;
+        google.protobuf.Timestamp datetime = 2;
+        uint32 score = 3;
+        uint32 pid = 4;
+        bytes common_data = 5;
+    }
+
+    message GetTimeTrialRankingRequest {
+        uint32 track = 1;
+        int32 limit = 2;
+        bool asc = 3;
+    }
+
+    message GetTimeTrialRankingResponse {
+        repeated TimeTrialRanking rankings = 1;
+    }
+    """
+
+    async def GetTimeTrialRanking(self,
+                                  request: amkj_service_pb2.GetTimeTrialRankingRequest,
+                                  context: grpc.aio.ServicerContext) -> amkj_service_pb2.GetTimeTrialRankingResponse:
+
+        await self.check_auth(context)
+
+        rankings = []
+        scores = self.ranking_mgr.get_scores_by_range_standard(request.track, 0, request.limit, not request.asc)
+        for score in scores:
+            rank = list(score.keys())[0]
+            score_data = list(score.values())[0]
+
+            score = score_data["score"]
+            pid = score_data["pid"]
+            common_data = score_data["data"]
+
+            entry_time = Timestamp()
+            entry_time.FromDatetime(score_data["insert_time"])
+
+            rankings.append(
+                amkj_service_pb2.TimeTrialRanking(
+                    rank=rank,
+                    datetime=entry_time,
+                    score=score,
+                    pid=pid,
+                    common_data=common_data
+                )
+            )
+
+        return amkj_service_pb2.GetTimeTrialRankingResponse(rankings=rankings)

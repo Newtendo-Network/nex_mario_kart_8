@@ -233,6 +233,8 @@ async def main():
         DataStoreServer,
     ]
 
+    amkj_service.bind_ranking_manager(RankingServer.ranking_mgr)
+
     server_key = kerberos.KeyDerivationOld(65000, 1024).derive_key(NEX_CONFIG.nex_secure_user_password.encode("ascii"), pid=2)
     async with rmc.serve(sett, auth_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_auth_port):
         async with serve_rmc_custom(sett, secure_servers, NEX_CONFIG.nex_host, NEX_CONFIG.nex_secure_port, key=server_key):
