@@ -3,6 +3,7 @@ from pymongo.collection import Collection
 from typing import Callable
 import datetime
 import pymongo
+from minio import Minio
 
 from nex_protocols_common_py.datastore_protocol import CommonDataStoreServer
 
@@ -125,22 +126,18 @@ class MK8DataStoreSearchParam(common.Structure):
 class MK8DataStoreServer(CommonDataStoreServer):
     def __init__(self,
                  settings,
-                 s3_client,
-                 s3_endpoint_domain: str,
+                 s3_client: Minio,
                  s3_bucket: str,
                  datastore_db: Collection,
                  sequence_db: Collection,
-                 head_object_by_key: Callable[[str], tuple[bool, int, str]],
                  calculate_s3_object_key: Callable[[Collection, rmc.RMCClient, int, int], str],
                  calculate_s3_object_key_ex: Callable[[Collection, int, int, int], str]):
 
         super().__init__(settings,
                          s3_client,
-                         s3_endpoint_domain,
                          s3_bucket,
                          datastore_db,
                          sequence_db,
-                         head_object_by_key,
                          calculate_s3_object_key,
                          calculate_s3_object_key_ex)
 

@@ -5,9 +5,11 @@ import logging
 import asyncio
 import time
 import aioconsole
-import requests
 import contextlib
 import datetime
+import requests
+
+from datetime import datetime, timedelta
 
 from nex_protocols_common_py.authentication_protocol import AuthenticationUser, CommonAuthenticationServer
 from nex_protocols_common_py.secure_connection_protocol import CommonSecureConnectionServer
@@ -27,8 +29,10 @@ from grpc_py.friends.get_user_friend_pids_rpc_pb2 import GetUserFriendPIDsReques
 
 import redis
 
-import boto3
-from botocore.client import Config
+from minio import Minio
+from minio.datatypes import PostPolicy
+from minio.credentials import StaticProvider
+from io import BytesIO
 
 try:
     from server_config import NEX_CONFIG, NEX_SETTINGS
@@ -60,14 +64,9 @@ account_service = account_service_pb2_grpc.AccountStub(account_grpc_client)
 redis_client = redis.from_url(NEX_CONFIG.redis_uri)
 redis_client.ping()
 
-s3_client = boto3.client(
-    's3',
-    region_name=NEX_CONFIG.s3_region,
-    endpoint_url=NEX_CONFIG.s3_endpoint,
-    aws_access_key_id=NEX_CONFIG.s3_access_key,
-    aws_secret_access_key=NEX_CONFIG.s3_secret,
-    config=Config(signature_version='s3v4')
-)
+s3_client = Minio(endpoint=NEX_CONFIG.s3_endpoint_domain,
+                  secure=True,
+                  credentials=StaticProvider(NEX_CONFIG.s3_access_key, NEX_CONFIG.s3_secret, ""))
 
 
 def mk8_get_friend_pids(pid: int) -> list[int]:
@@ -202,19 +201,11 @@ async def main():
         else:
             return "mktv/%d.bin" % (object_id)
 
-    def mk8_head_object_by_key(key: str) -> tuple[bool, int, str]:
-        url = "https://%s.b-cdn.net/%s" % (NEX_CONFIG.bucket_name, key)
-        res = requests.head(url)
-        success = (res.status_code == 200)
-        return success, (0 if not success else int(res.headers["Content-Length"])), url
-
     DataStoreServer = MK8DataStoreServer(sett,
                                          s3_client=s3_client,
-                                         s3_endpoint_domain=NEX_CONFIG.s3_endpoint_domain,
                                          s3_bucket=NEX_CONFIG.bucket_name,
                                          datastore_db=GameDatabase[NEX_CONFIG.datastore_collection],
                                          sequence_db=GameDatabase[NEX_CONFIG.sequence_collection],
-                                         head_object_by_key=mk8_head_object_by_key,
                                          calculate_s3_object_key=mk8_calculate_s3_object_key,
                                          calculate_s3_object_key_ex=mk8_calculate_s3_object_key_ex)
 
