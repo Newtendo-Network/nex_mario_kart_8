@@ -89,8 +89,10 @@ def mk8_auth_callback(auth_user: AuthenticationUser) -> common.Result:
 
     user_restrictions = GameDatabase[NEX_CONFIG.restriction_collection].find({"pid": auth_user.pid})
     for restriction in user_restrictions:
-        if restriction["end_time"] is None or datetime.now() < restriction["end_time"]:
+        if restriction["end_time"] is None:
             return common.Result.error("RendezVous::AccountDisabled")
+        if datetime.now() < restriction["end_time"]:
+            return common.Result.error("RendezVous::AccountTemporarilyDisabled")
 
     return common.Result.success()
 
