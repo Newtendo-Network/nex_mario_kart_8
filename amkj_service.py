@@ -16,13 +16,14 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
 
-    def __init__(self, api_key: str, status_db: Collection, gatherings_db: Collection, tournaments_db: Collection, commondata_db: Collection):
+    def __init__(self, api_key: str, status_db: Collection, gatherings_db: Collection, tournaments_db: Collection, commondata_db: Collection, restrictions_db: Collection):
         self.rmc_secure_server = None
         self.api_key = api_key
         self.status_db = status_db
         self.gatherings_db = gatherings_db
         self.tournaments_db = tournaments_db
         self.commondata_db = commondata_db
+        self.restrictions_db = restrictions_db
         self.ranking_mgr: RankingManager = None
 
         self.is_online = False
@@ -30,8 +31,8 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
         self.is_whitelist = False
 
         self.should_switch_to_maintenance = False
-        self.start_maintenance_time = datetime.utcnow()
-        self.end_maintenance_time = datetime.utcnow()
+        self.start_maintenance_time = datetime.now(timezone.utc)
+        self.end_maintenance_time = datetime.now(timezone.utc)
 
         self.whitelist = []
 
@@ -53,7 +54,7 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
         microseconds = nanoseconds // 1000
 
         # Create datetime object from timestamp
-        utc_datetime = datetime.utcfromtimestamp(seconds).replace(microsecond=microseconds)
+        utc_datetime = datetime.fromtimestamp(seconds, timezone.utc).replace(microsecond=microseconds)
 
         # Convert UTC datetime to local datetime
         local_datetime = utc_datetime.astimezone()
@@ -442,3 +443,66 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             )
 
         return amkj_service_pb2.GetTimeTrialRankingResponse(rankings=rankings)
+
+    async def DeleteTimeTrialRanking(self,
+                                     request: amkj_service_pb2.DeleteTimeTrialRankingRequest,
+                                     context: grpc.aio.ServicerContext) -> amkj_service_pb2.DeleteTimeTrialRankingResponse:
+
+        await self.check_auth(context)
+
+        self.ranking_mgr.delete_scores(request.pid, request.track)
+        return amkj_service_pb2.DeleteTimeTrialRankingResponse()
+
+    async def DeleteAllTimeTrialRankings(self,
+                                         request: amkj_service_pb2.DeleteAllTimeTrialRankingsRequest,
+                                         context: grpc.aio.ServicerContext) -> amkj_service_pb2.DeleteAllTimeTrialRankingsResponse:
+        await self.check_auth(context)
+
+        self.ranking_mgr.delete_all_scores(request.pid)
+        return amkj_service_pb2.DeleteAllTimeTrialRankingsResponse()
+
+    async def IssueBan(self,
+                       request: amkj_service_pb2.IssueBanRequest,
+                       context: grpc.aio.ServicerContext) -> amkj_service_pb2.IssueBanResponse:
+
+        await self.check_auth(context)
+
+        self.restrictions_db.insert_one({
+            "pid": request.pid,
+            "reason": request.reason,
+            "start_time": request.start_time.ToDatetime(),
+            "end_time": request.end_time.ToDatetime()
+        })
+        return amkj_service_pb2.IssueBanResponse()
+
+    async def ClearBan(self, request, context) -> amkj_service_pb2.ClearBanResponse:
+        await self.check_auth(context)
+
+        self.restrictions_db.delete_many({"pid": request.pid})
+        return amkj_service_pb2.ClearBanResponse()
+
+    async def GetAllBans(self,
+                         request: amkj_service_pb2.GetAllBansRequest,
+                         context: grpc.aio.ServicerContext) -> amkj_service_pb2.GetAllBansResponse:
+        await self.check_auth(context)
+
+        cursor = self.restrictions_db.find({}).skip(request.offset)
+        if request.limit > 0:
+            cursor = cursor.limit(request.limit)
+
+        bans = []
+        for restriction in cursor:
+            start_time = Timestamp()
+            start_time.FromDatetime(restriction["start_time"])
+
+            end_time = Timestamp()
+            end_time.FromDatetime(restriction["end_time"])
+            bans.append(
+                amkj_service_pb2.Ban(
+                    pid=restriction["pid"],
+                    reason=restriction["reason"],
+                    start_time=start_time,
+                    end_time=end_time
+                ))
+
+        return amkj_service_pb2.GetAllBansResponse(bans=bans)

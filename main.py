@@ -9,7 +9,7 @@ import contextlib
 import datetime
 import requests
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 from nex_protocols_common_py.authentication_protocol import AuthenticationUser, CommonAuthenticationServer
 from nex_protocols_common_py.secure_connection_protocol import CommonSecureConnectionServer
@@ -53,7 +53,8 @@ amkj_service = AmkjService(NEX_CONFIG.mario_kart_8_grpc_api_key,
                            GameDatabase["status"],
                            GameDatabase[NEX_CONFIG.gatherings_collection],
                            GameDatabase[NEX_CONFIG.tournaments_collection],
-                           GameDatabase[NEX_CONFIG.ranking_common_data_collection])
+                           GameDatabase[NEX_CONFIG.ranking_common_data_collection],
+                           GameDatabase[NEX_CONFIG.restriction_collection],)
 
 friends_grpc_client = grpc.insecure_channel('%s:%d' % (NEX_CONFIG.friends_grpc_host, NEX_CONFIG.friends_grpc_port))
 friends_service = friends_service_pb2_grpc.FriendsStub(friends_grpc_client)
@@ -85,6 +86,12 @@ def mk8_auth_callback(auth_user: AuthenticationUser) -> common.Result:
         return common.Result.error("Authentication::UnderMaintenance")
     if amkj_service.is_whitelist and (auth_user.pid not in amkj_service.whitelist):
         return common.Result.error("RendezVous::PermissionDenied")
+
+    user_restrictions = GameDatabase[NEX_CONFIG.restriction_collection].find({"pid": auth_user.pid})
+    for restriction in user_restrictions:
+        if restriction["end_time"] is None or datetime.now() < restriction["end_time"]:
+            return common.Result.error("RendezVous::AccountDisabled")
+
     return common.Result.success()
 
 # ============= Custom RMC serving function =============

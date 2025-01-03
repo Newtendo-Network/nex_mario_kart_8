@@ -82,6 +82,7 @@ class NEXConfig:
         self.rankings_score_collection = "rankings"
         self.secure_reports_collection = "secure_reports"
         self.datastore_collection = "datastore"
+        self.restriction_collection = "restrictions"
 
         self.s3_endpoint_domain = "..."
         self.s3_endpoint = "https://" + self.s3_endpoint_domain
