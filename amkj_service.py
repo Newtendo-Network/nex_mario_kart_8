@@ -112,10 +112,9 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
         if pid in self.rmc_clients:
             cl = self.rmc_clients.pop(pid)
             await cl.disconnect()
-            self.rmc_clients_lock.release()
+            await cl.close()
             return True
 
-        self.rmc_clients_lock.release()
         return False
 
     async def GetServerStatus(self,
@@ -471,8 +470,11 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             "pid": request.pid,
             "reason": request.reason,
             "start_time": request.start_time.ToDatetime(),
-            "end_time": request.end_time.ToDatetime()
+            "end_time": request.end_time.ToDatetime() if request.HasField("end_time") else None
         })
+
+        await self.kick_by_pid(request.pid)
+
         return amkj_service_pb2.IssueBanResponse()
 
     async def ClearBan(self, request, context) -> amkj_service_pb2.ClearBanResponse:
@@ -495,8 +497,12 @@ class AmkjService(amkj_service_pb2_grpc.AmkjServiceServicer):
             start_time = Timestamp()
             start_time.FromDatetime(restriction["start_time"])
 
-            end_time = Timestamp()
-            end_time.FromDatetime(restriction["end_time"])
+            if restriction["end_time"] is not None:
+                end_time = Timestamp()
+                end_time.FromDatetime(restriction["end_time"])
+            else:
+                end_time = None
+
             bans.append(
                 amkj_service_pb2.Ban(
                     pid=restriction["pid"],
